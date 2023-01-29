@@ -1,0 +1,265 @@
+
+
+package rs.ac.bg.etf.pp1;
+
+import java_cup.runtime.*;
+import org.apache.log4j.*;
+import rs.ac.bg.etf.pp1.ast.*;
+
+parser code {:
+
+	boolean errorDetected = false;
+	
+	Logger log = Logger.getLogger(getClass());
+   
+   
+    // slede redefinisani metodi za prijavu gresaka radi izmene teksta poruke
+     
+    public void report_fatal_error(String message, Object info) throws java.lang.Exception {
+      done_parsing();
+      report_error(message, info);
+    }
+  
+    public void syntax_error(Symbol cur_token) {
+        report_error("\nSintaksna greska", cur_token);
+    }
+  
+    public void unrecovered_syntax_error(Symbol cur_token) throws java.lang.Exception {
+        report_fatal_error("Fatalna greska, parsiranje se ne moze nastaviti", cur_token);
+    }
+
+    public void report_error(String message, Object info) {
+    	errorDetected = true;
+    	StringBuilder msg = new StringBuilder(message); 
+    	if (info instanceof Symbol)
+            msg.append (" na liniji ").append(((Symbol)info).left);
+        log.error(msg.toString());
+    }
+    
+    public void report_info(String message, Object info) {
+    	StringBuilder msg = new StringBuilder(message); 
+    	if (info instanceof Symbol)
+            msg.append (" na liniji ").append(((Symbol)info).left);
+        log.info(msg.toString());
+    }
+    
+:}
+
+scan with {:
+	Symbol s = this.getScanner().next_token();
+	if (s != null && s.value != null) 
+		log.info(s.toString() + " " + s.value.toString());
+	return s;
+:}
+terminal PROG, LBRACE, RBRACE, SEMI, LPAREN, RPAREN, COMMA, PRINT, LBRACKET, RBRACKET, DQ;
+terminal EQUAL, PLUS, MINUS, MUL, DIV, MOD, INC, DEC, CONST, RETURN;
+terminal NEW, COLON, READ;
+terminal String IDENT;
+terminal Integer NUMBER;			  
+terminal Character CHAR;			  			  
+terminal Boolean BOOL;
+
+
+nonterminal DeclList, MethodDeclList, Decl, VarDecl, ConstDecl, VarDeclList, Var, ConstListDecl, ConstListElem;
+nonterminal FormPars, StatementList, FormalParamList, FormalParamDecl, Statement, Statements, Array;
+nonterminal Label, SingleStatement, DesignatorStatement, Addop;
+nonterminal Mulop, BinDq;
+
+nonterminal rs.etf.pp1.symboltable.concepts.Struct Type, Expr, Term, Factor, numConst, charConst, boolConst, AddopList, MulopList, ExprElem, EqualStatement;
+nonterminal rs.etf.pp1.symboltable.concepts.Obj ProgramName, Program, MtdTypeName, MethodDecl, Designator,Arr, Init;
+nonterminal ExprEnd;
+
+
+Program ::= (Program) PROG ProgramName:p DeclList LBRACE MethodDeclList RBRACE;
+
+ProgramName ::= (ProgramName) IDENT:programname ;
+
+DeclList ::= (DeclarationList) DeclList Decl
+			|
+			(NoDecList) /* epsilon */
+			;
+			
+Decl ::= (VarElem) VarDecl
+			|
+			(ConstElem) ConstDecl
+			;
+
+VarDecl ::= (VarDecl) Type:varType VarDeclList SEMI
+			;
+
+VarDeclList ::= (VarDeclarations) VarDeclList COMMA Var
+			|
+			(OneVarList) Var
+			;
+			
+Var ::= (Variable) IDENT:name Array
+			|
+			(ErrorVar) error:l
+			{: parser.report_error("Greska kod definisanja glob. promenljive. Izvrsen oporavak u liniji " + lleft +" do , ili ; ", null);  :}	;
+
+Array ::= (ArrDecl) LBRACKET RBRACKET
+			|
+			(NoArr) /* epsilon */	;
+
+Type ::= (Type) IDENT:typeName;
+
+
+MethodDeclList ::= (MethodListDeclarations) MethodDeclList MethodDecl
+				|
+				(NoMethodDecl) /* epsilon */
+				;
+				
+MethodDecl ::= (MethodDeclarations) MtdTypeName LPAREN FormPars RPAREN DeclList LBRACE StatementList RBRACE;
+
+MtdTypeName ::= (MtdTypeName) Type:retType IDENT:methName;
+
+ConstDecl ::= (ConstDeclarations) CONST Type:constType ConstListDecl SEMI ;
+			
+ConstListDecl ::= (ConstList) ConstListDecl COMMA ConstListElem
+			|
+			(OneConstList) ConstListElem:e
+			;
+			
+ConstListElem ::= (ConstListElemDecl) IDENT:name EQUAL Init ;
+
+
+FormPars ::= (FormParams) FormalParamList
+		  |
+		  (NoFormParam) /* epsilon */
+		  ;
+		  
+FormalParamList ::= (FormalParamDecls) FormalParamList COMMA FormalParamDecl
+				|
+				(SingleFormalParamDecl) FormalParamDecl
+				;
+				
+FormalParamDecl ::=	(FormalParamDecl) Type:t IDENT:param Array ;
+
+
+
+Label ::= (Label) IDENT:labelName ;				
+
+Statements ::= (Stmts) LBRACE StatementList RBRACE ;
+
+StatementList ::= (StmtsList) StatementList Statement 
+					|
+				  (NoStmt) /* epsilon */
+				  ;
+
+Statement::=(LabeledSingleStmt) Label:l COLON SingleStatement
+			|
+			(SingleStmt) SingleStatement
+			|
+			(MultipleStmtDecl) Statements
+			;
+			
+SingleStatement::=(DesignatorStmt) DesignatorStatement SEMI:t
+				|
+				(ReadStmt) READ LPAREN Designator RPAREN SEMI
+				|
+				(PrintNumStmt) PRINT LPAREN Expr:e COMMA numConst RPAREN SEMI
+				|
+				(PrintStmt) PRINT LPAREN Expr:e RPAREN SEMI
+				|
+				(RetExStmt) RETURN Expr:e SEMI
+				|
+				(NoRet) RETURN SEMI
+				;
+
+DesignatorStatement ::= (EqualStmt) Designator:d EqualStatement
+					|
+					(IncStmt) Designator:d INC
+					|
+					(DecStmt) Designator:d DEC			
+					|
+					(DesignatorError) error:l
+					{: parser.report_error("Greska kod designatora. Izvrsen oporavak do ; u liniji " + lleft, null);  :}
+					;
+					
+EqualStatement ::= (EqualStatementDecl) EQUAL Expr:e
+					|
+					(ErrorDesignator) error:l
+					{: parser.report_error("Greska kod iskaza dodele. Izvrsen oporavak do ; u liniji " + lleft, null);  :}
+					;
+					
+
+Designator ::= (DesigArray) Arr LBRACKET Expr:e RBRACKET
+			|
+			 (Desig) IDENT:dname
+			;
+Arr::=(ArrIdentDecl) IDENT:name;
+		
+
+Expr ::=(BinExpr) ExprElem:e1 BinDq ExprElem:e2 ExprEnd
+		|
+		(ExprDeclaration) ExprElem
+		;
+		
+		
+
+ExprEnd::= (EndOfBin) /* epsilon */;
+
+		
+
+ExprElem::= (NegExprElemDecl) MINUS Term:t AddopList
+			|
+			(ExprElemDecl) Term:t AddopList
+			;	
+		
+
+AddopList ::= (AddopListDecl) AddopList Addop Term:t
+			|
+			(NoAddopListDecl) /* epsilon */
+			;
+			
+Term ::= (TermDecl) Factor:f MulopList ;
+
+MulopList ::= (MulopListDecl) MulopList Mulop Factor:f
+			|
+			(NoMulopListDecl) /* epsilon */
+			;
+
+Factor ::=(NumFactor) numConst
+		|
+		(CharFactor) charConst
+		|
+		(ExprFactor) LPAREN Expr:e RPAREN
+		|
+		(BoolFactor) boolConst
+		|
+		(NewDeclFactor) NEW Type:factorType LBRACKET Expr:e RBRACKET
+		|
+		(DesigFactor) Designator:d
+		;
+		
+		
+
+Addop ::= (Add) PLUS
+		|
+		(Sub) MINUS
+		;
+
+Mulop ::= (Mul) MUL
+		|
+		(Div) DIV
+		|
+		(Mod) MOD
+		;
+		
+BinDq::= (BinOpSign) DQ ;
+		
+Init::= (InitNum) numConst 
+		|
+		(InitChar) charConst 
+		|
+		(InitBool) boolConst
+		;
+
+numConst ::= (NumConst) NUMBER ;
+
+charConst ::= (CharConst) CHAR ; 
+
+boolConst ::= (BoolConst) BOOL ;
+
+		
+		
